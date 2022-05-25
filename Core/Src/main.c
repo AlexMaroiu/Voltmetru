@@ -548,17 +548,10 @@ void backlightHandler(double voltage)
 
 void drawVoltage(double voltage)
 {
-	//sprintf(voltageVstr, "%.1f V", voltage);
 	sprintf(voltageVstr, "%.1f ", voltage * voltage_map[vMapVal].val);
 	strcat(voltageVstr, voltage_map[vMapVal].string);
 
 	st7565_drawstring(buffer, 50, 0,(uint8_t*)voltageVstr);
-	//st7565_drawstring(buffer, 50, 1,(uint8_t*)voltagemVstr);
-
-	sprintf(voltageVstr, "%.1f", minRef);
-	st7565_drawstring(buffer, 0, 1,(uint8_t*)voltageVstr);
-	sprintf(voltageVstr, "%.1f", maxRef);
-	st7565_drawstring(buffer, 0, 2,(uint8_t*)voltageVstr);
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
@@ -658,9 +651,6 @@ void voltmeter(void)
 	backlightHandler(voltageV);
 
 	drawVoltage(voltageV);
-
-	sprintf(adcVstr, "%d", adcValue);
-	st7565_drawstring(buffer, 0, 0,(uint8_t*)adcVstr);
 
 	drawAnalogVoltmetru(adcValue);
 
