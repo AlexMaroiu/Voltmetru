@@ -36,7 +36,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define mapSize 2
 
 /* USER CODE END PD */
 
@@ -56,22 +55,17 @@ TIM_HandleTypeDef htim16;
 
 /* USER CODE BEGIN PV */
 
-uint8_t state = 255;
-uint16_t adcValue = 0;
-uint16_t joystick = 0;
-double voltageV = 0;
-char voltageVstr [10] = {0};
-char adcVstr [10] = {0};
-uint8_t interruptsCounter = 0;
+uint8_t state = 0;
 uint8_t lastBtnState = 0;
 uint8_t btnCounter = 0;
 uint8_t lcdState = 0;
-uint8_t modifyRef = 0;
+uint8_t indexRef = 0;
+uint8_t timer2Counter = 0;
 uint8_t timer7Counter = 0;
 float minRef = 1.f;
 float maxRef = 2.5f;
 
-const voltage_show voltage_map [mapSize] = {
+const voltage_show voltage_map [] = {
 		{1, "V"},
 		{1000, "mV"}
 };
@@ -105,6 +99,7 @@ void modify_minRef(float val);
 void modify_maxRef(float val);
 void modify_Voltage(float val);
 uint8_t reset_func(void);
+uint16_t readADC(void);
 
 /* USER CODE END PFP */
 
@@ -170,8 +165,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		st7565_clear_buffer(buffer);
-
 		if(!lcdConnected())
 		{
 			continue;
@@ -527,38 +520,40 @@ void drawAnalogVoltmetru(uint16_t adcVal)
 
 void backlightHandler(double voltage)
 {
-	if(voltage < minRef && state != 0)
+	if(state != 1 && voltage < minRef)
 	{
 		HAL_TIM_Base_Stop(&htim2);
 		st7565_backlight_disable();
-		state = 0;
+		state = 1;
 	}
-	if(voltage >= minRef && state != 1)
+	else if(state != 2 && voltage >= minRef && voltage < maxRef)
 	{
 		HAL_TIM_Base_Stop(&htim2);
 		st7565_backlight_enable();
-		state = 1;
+		state = 2;
 	}
-	if(voltage >= maxRef && state != 2)
+	else if(state != 3 && voltage >= maxRef)
 	{
 		HAL_TIM_Base_Start_IT(&htim2);
-		state = 2;
+		state = 3;
 	}
 }
 
 void drawVoltage(double voltage)
 {
-	sprintf(voltageVstr, "%.1f ", voltage * voltage_map[vMapVal].val);
-	strcat(voltageVstr, voltage_map[vMapVal].string);
+	char string [10] = {0};
 
-	st7565_drawstring(buffer, 50, 0,(uint8_t*)voltageVstr);
+	sprintf(string, "%.1f ", voltage * voltage_map[vMapVal].val);
+	strcat(string, voltage_map[vMapVal].string);
+
+	st7565_drawstring(buffer, 50, 0,(uint8_t*)string);
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
 {
 	if(htim == &htim2)
 	{
-		if(interruptsCounter++ % 2)
+		if(timer2Counter++ % 2)
 		{
 			st7565_backlight_enable();
 		}
@@ -613,6 +608,8 @@ uint8_t lcdConnected(void)
 		if(lcdState != 1)
 		{
 			PA5toOutput();
+			HAL_TIM_Base_Stop_IT(&htim2);
+			state = 0;
 			lcdState = 1;
 		}
 		return 0;
@@ -621,18 +618,23 @@ uint8_t lcdConnected(void)
 
 uint8_t pause(uint8_t btn)
 {
-	uint8_t btnState =  btn; // citeste user button
-
-	if(0 == btnState && lastBtnState)
+	if(0 == btn && lastBtnState)
 	{
 		btnCounter++;
 		if(reset_func())
 			return 1;
 	}
 
-	lastBtnState = btnState;
+	lastBtnState = btn;
 
 	return btnCounter % 2;
+}
+
+uint16_t readADC(void)
+{
+	HAL_ADC_Start(&hadc);
+	HAL_ADC_PollForConversion(&hadc, HAL_MAX_DELAY);
+	return HAL_ADC_GetValue(&hadc);
 }
 
 void voltmeter(void)
@@ -642,18 +644,14 @@ void voltmeter(void)
 		return;
 	}
 
-	HAL_ADC_Start(&hadc);
-	HAL_ADC_PollForConversion(&hadc, HAL_MAX_DELAY);
-	adcValue = HAL_ADC_GetValue(&hadc);
-
-	voltageV = adcValue * 0.00322265625;	 // 3.3v / 2^10 = 0.00322265625
+	uint16_t adcValue = readADC();
+	double voltageV = adcValue * 0.003515625;	 // 3.3v / 2^10 = 0.00322265625
 
 	backlightHandler(voltageV);
 
+	st7565_clear_buffer(buffer);
 	drawVoltage(voltageV);
-
 	drawAnalogVoltmetru(adcValue);
-
 	st7565_write_buffer(buffer);
 
 	HAL_Delay(500);
@@ -687,7 +685,7 @@ void ADC_Extern(uint32_t rank)
 void modify_minRef(float val)
 {
 	val /= 5.f;
-	if(maxRef - 0.3 <= minRef + val || minRef + val < 0.5)
+	if(maxRef - 0.3 <= minRef + val || minRef + val < 0.1)
 	{
 		return;
 	}
@@ -697,7 +695,7 @@ void modify_minRef(float val)
 void modify_maxRef(float val)
 {
 	val /= 5.f;
-	if(minRef + 0.3 >= maxRef + val || maxRef + val > 3.3)
+	if(minRef + 0.3 >= maxRef + val || maxRef + val >= 3.5)
 	{
 		return;
 	}
@@ -709,47 +707,49 @@ void modify_Voltage(float val)
 	if(vMapVal + val < 0)
 		vMapVal = 1;
 	else
-		vMapVal = (vMapVal + (int)val) % mapSize;
+		vMapVal = (vMapVal + (int)val) % 2;
 }
 
 void settings(void)
 {
+	char string [10] = {0};
 	st7565_clear_buffer(buffer);
 
 	st7565_drawstring(buffer, 0, 0,(uint8_t*)"Stand-by voltage:");
-	sprintf(voltageVstr, "%.1f", minRef);
-	st7565_drawstring(buffer, 10, 1, (uint8_t*)voltageVstr);
+	sprintf(string, "%.1f", minRef);
+	st7565_drawstring(buffer, 10, 1, (uint8_t*)string);
 
 	st7565_drawstring(buffer, 0, 2, (uint8_t*)"Blink voltage:");
-	sprintf(voltageVstr, "%.1f", maxRef);
-	st7565_drawstring(buffer, 10, 3, (uint8_t*)voltageVstr);
+	sprintf(string, "%.1f", maxRef);
+	st7565_drawstring(buffer, 10, 3, (uint8_t*)string);
 
 	st7565_drawstring(buffer, 0, 4, (uint8_t*)"Voltage display:");
 	st7565_drawstring(buffer, 10, 5, (uint8_t*)voltage_map[vMapVal].string);
 
-	st7565_drawstring(buffer, 0, (modifyRef%3)*2+1, (uint8_t*)"-");
+	st7565_drawstring(buffer, 0, (indexRef%3)*2+1, (uint8_t*)">");
 
-	HAL_ADC_Start(&hadc);
-	HAL_ADC_PollForConversion(&hadc, HAL_MAX_DELAY);
-	joystick =  HAL_ADC_GetValue(&hadc);
+	uint16_t joystick =  readADC();
 
-	if(joystick > 920 && joystick < 940)// dreapta 930
+	//sprintf(string, "%d", joystick);
+	//st7565_drawstring(buffer, 0, 6, (uint8_t*)string);
+
+	if(joystick < 50)// stanga 0
 	{
-		modify_ref[modifyRef%3](1.f);
+		modify_ref[indexRef%3](-1.f);
 	}
-	if(joystick >= 0 && joystick < 10)// stanga 0
-	{
-		modify_ref[modifyRef%3](-1.f);
-	}
-	if(joystick >= 600 && joystick < 610)// jos 600
-	{
-		modifyRef++;
-	}
-	if(joystick >= 290 && joystick < 310)// click joystick 300
+	else if(joystick < 350)// click joystick 300
 	{
 		ADC_Joystick(ADC_RANK_NONE);
 		ADC_Extern(ADC_RANK_CHANNEL_NUMBER);
 		main_func = voltmeter;
+	}
+	else if(joystick < 650)// jos 600
+	{
+		indexRef++;
+	}
+	else if(joystick < 950)// dreapta 930
+	{
+		modify_ref[indexRef%3](1.f);
 	}
 
 	st7565_write_buffer(buffer);
@@ -759,28 +759,25 @@ void settings(void)
 
 uint8_t reset_func()
 {
-	if(btnCounter%2)
+	if(!timer7Counter || timer7Counter > 10)
 	{
 		timer7Counter = 0;
 		HAL_TIM_Base_Start_IT(&htim7);
+		return 0;
 	}
-	else
+	else// if(timer7Counter <= 10)
 	{
-		if(timer7Counter < 10 && timer7Counter > 0)
-		{
-			btnCounter = 0;
-			timer7Counter = 0;
-			state = 255;
-			HAL_TIM_Base_Stop_IT(&htim2);
-			HAL_TIM_Base_Stop_IT(&htim7);
-			st7565_backlight_enable();
-			main_func = settings;
-			ADC_Extern(ADC_RANK_NONE);
-			ADC_Joystick(ADC_RANK_CHANNEL_NUMBER);
-			return 1;
-		}
+		btnCounter = 0;
+		timer7Counter = 0;
+		state = 0;
+		HAL_TIM_Base_Stop_IT(&htim2);
+		HAL_TIM_Base_Stop_IT(&htim7);
+		st7565_backlight_enable();
+		main_func = settings;
+		ADC_Extern(ADC_RANK_NONE);
+		ADC_Joystick(ADC_RANK_CHANNEL_NUMBER);
+		return 1;
 	}
-	return 0;
 }
 
 
