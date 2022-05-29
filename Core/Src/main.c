@@ -86,7 +86,7 @@ static void MX_TIM7_Init(void);
 void voltmeter(void);
 void settings(void);
 
-void drawAnalogVoltmetru(uint16_t adcVal);
+void drawAnalogVoltmeter(uint16_t adcVal);
 void backlightHandler(double voltage);
 void drawVoltage(double voltage);
 void PA5toSPI(void);
@@ -95,6 +95,7 @@ uint8_t lcdConnected(void);
 uint8_t pause(uint8_t btn);
 void ADC_Joystick(uint32_t rank);
 void ADC_Extern(uint32_t rank);
+void draw_settings(void);
 void modify_minRef(float val);
 void modify_maxRef(float val);
 void modify_Voltage(float val);
@@ -492,7 +493,7 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void drawAnalogVoltmetru(uint16_t adcVal)
+void drawAnalogVoltmeter(uint16_t adcVal)
 {
 	const int x = 64; //centru
 	const int y = 63; //centru
@@ -500,14 +501,14 @@ void drawAnalogVoltmetru(uint16_t adcVal)
 	int angle = 270; //270 stanga, 90 dreapta, 180 mijloc
 	int i;
 
-	angle = 270 - 180.0f/1024 * adcVal;
+	angle -= 180.0f/1024 * adcVal;
 	x1 = x + (40 * sin(angle * M_PI / 180)); //40 e raza
 	y1 = y + (40 * cos(angle * M_PI / 180));
 	st7565_drawline(buffer, x, y, x1, y1, 1);
 
 
 	// liniile de arc de cerc
-	for(i =0;i <= 180; i+=10)
+	for(i = 0;i <= 180; i += 10)
 	{
 		x2 = x + (45 * sin((270-i) * M_PI / 180));
 		y2 = y + (45 * cos((270-i) * M_PI / 180));
@@ -553,16 +554,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
 {
 	if(htim == &htim2)
 	{
-		if(timer2Counter++ % 2)
-		{
-			st7565_backlight_enable();
-		}
-		else
-		{
-			st7565_backlight_disable();
-		}
+		timer2Counter++ % 2 ? st7565_backlight_enable() : st7565_backlight_disable();
 	}
-	if(htim == &htim7)
+	else if(htim == &htim7)
 	{
 		timer7Counter++;
 	}
@@ -587,7 +581,7 @@ void PA5toOutput(void)
 	st7565_sendbyte( ST7565_CMD_DISPLAY_OFF );
 
 	GPIOA->MODER &= ~(3<<10);
-	GPIOA->MODER |= 1 << 10; // pa5 alternate function
+	GPIOA->MODER |= 1 << 10; // pa5 output
 
 	GPIOA->BSRR |= 1<<5;
 }
@@ -645,13 +639,13 @@ void voltmeter(void)
 	}
 
 	uint16_t adcValue = readADC();
-	double voltageV = adcValue * 0.003515625;	 // 3.3v / 2^10 = 0.00322265625
+	double voltageV = adcValue * 0.003515625;	 // 3.6v / 2^10 = 0.003515625 v   | 0.0048828125 pentru un divizor de tensiune la 5v
 
 	backlightHandler(voltageV);
 
 	st7565_clear_buffer(buffer);
 	drawVoltage(voltageV);
-	drawAnalogVoltmetru(adcValue);
+	drawAnalogVoltmeter(adcValue);
 	st7565_write_buffer(buffer);
 
 	HAL_Delay(500);
@@ -680,6 +674,23 @@ void ADC_Extern(uint32_t rank)
 	{
 		Error_Handler();
 	}
+}
+
+void draw_settings(void)
+{
+	char string [10] = {0};
+	st7565_drawstring(buffer, 0, 0,(uint8_t*)"Stand-by voltage:");
+	sprintf(string, "%.1f", minRef);
+	st7565_drawstring(buffer, 10, 1, (uint8_t*)string);
+
+	st7565_drawstring(buffer, 0, 2, (uint8_t*)"Blink voltage:");
+	sprintf(string, "%.1f", maxRef);
+	st7565_drawstring(buffer, 10, 3, (uint8_t*)string);
+
+	st7565_drawstring(buffer, 0, 4, (uint8_t*)"Voltage display:");
+	st7565_drawstring(buffer, 10, 5, (uint8_t*)voltage_map[vMapVal].string);
+
+	st7565_drawstring(buffer, 0, (indexRef%3)*2+1, (uint8_t*)">");
 }
 
 void modify_minRef(float val)
@@ -712,26 +723,7 @@ void modify_Voltage(float val)
 
 void settings(void)
 {
-	char string [10] = {0};
-	st7565_clear_buffer(buffer);
-
-	st7565_drawstring(buffer, 0, 0,(uint8_t*)"Stand-by voltage:");
-	sprintf(string, "%.1f", minRef);
-	st7565_drawstring(buffer, 10, 1, (uint8_t*)string);
-
-	st7565_drawstring(buffer, 0, 2, (uint8_t*)"Blink voltage:");
-	sprintf(string, "%.1f", maxRef);
-	st7565_drawstring(buffer, 10, 3, (uint8_t*)string);
-
-	st7565_drawstring(buffer, 0, 4, (uint8_t*)"Voltage display:");
-	st7565_drawstring(buffer, 10, 5, (uint8_t*)voltage_map[vMapVal].string);
-
-	st7565_drawstring(buffer, 0, (indexRef%3)*2+1, (uint8_t*)">");
-
 	uint16_t joystick =  readADC();
-
-	//sprintf(string, "%d", joystick);
-	//st7565_drawstring(buffer, 0, 6, (uint8_t*)string);
 
 	if(joystick < 50)// stanga 0
 	{
@@ -752,6 +744,8 @@ void settings(void)
 		modify_ref[indexRef%3](1.f);
 	}
 
+	st7565_clear_buffer(buffer);
+	draw_settings();
 	st7565_write_buffer(buffer);
 
 	HAL_Delay(150);
