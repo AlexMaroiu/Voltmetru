@@ -63,7 +63,7 @@ uint8_t indexRef = 0;
 uint8_t timer2Counter = 0;
 uint8_t timer7Counter = 0;
 float minRef = 1.f;
-float maxRef = 2.5f;
+float maxRef = 3.5f;
 
 const voltage_show voltage_map [] = {
 		{1, "V"},
@@ -706,7 +706,7 @@ void modify_minRef(float val)
 void modify_maxRef(float val)
 {
 	val /= 5.f;
-	if(minRef + 0.3 >= maxRef + val || maxRef + val >= 3.5)
+	if(minRef + 0.3 >= maxRef + val || maxRef + val >= 3.6)
 	{
 		return;
 	}
