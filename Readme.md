@@ -7,3 +7,5 @@ Folosind joystick-ul de pe ecran, putem naviga in setari, stanga dreapta modific
 ![Image](https://raw.githubusercontent.com/AlexMaroiu/Voltmetru/master/pictures/settings.jpg)
 
 Voltmetrul arata tensiunea in valoarea de referinta specificata. Voltmetrul este unul analogic.
+
+![Image](https://raw.githubusercontent.com/AlexMaroiu/Voltmetru/refs/heads/master/pictures/afisaj.jpg)
